@@ -8,27 +8,49 @@ from stable_baselines3.common import env_checker
 
 class DoomEnvironment(Env): 
     
-    def __init__(self, render=False): 
+    def __init__(self, render=False, config='./ViZDoom/scenarios/basic.cfg'): 
         super().__init__()
         self.game = DoomGame()
-        self.game.load_config('./VizDoom/scenarios/basic.cfg')
+        self.game.load_config(config)
         self.game.set_window_visible(render)
         self.game.init()
         state = self.game.get_state().screen_buffer
         original_shape = state.shape
         final_shape = self.reduce_size(state).shape
-        self.observation_space = Box(low=0, high=255, shape=final_shape, dtype=np.uint8) 
-        self.action_space = Discrete(3)
-
+        self.observation_space = Box(low=0, high=255, shape=final_shape, dtype=np.uint8)
+        self.buttons = self.game.get_available_buttons()
+        self.action_space = Discrete(len(self.buttons))
+        self.damage_taken = 0
+        self.hitcount = 0
+        self.ammo = 52
+    
+    def get_reward(self, reward):
+        game_variables = self.game.get_state().game_variables
+        #print(game_variables)
+        if len(game_variables) == 1:
+            self.ammo = game_variables[0]
+            return reward
+        else:
+            movement_reward = reward
+            health, damage_taken, hitcount, ammo = game_variables
+            damage_taken_delta = -damage_taken + self.damage_taken
+            self.damage_taken = damage_taken
+            hitcount_delta = hitcount - self.hitcount
+            self.hitcount = hitcount
+            ammo_delta = ammo - self.ammo
+            self.ammo = ammo
+            reward = movement_reward + damage_taken_delta*10 + hitcount_delta*200  + ammo_delta*5 
+            return reward
+        
 
     def step(self, action):
-        actions = np.identity(3)
+        actions = np.identity(len(self.buttons))
         reward = self.game.make_action(actions[action], 4) 
         if self.game.get_state(): 
             state = self.game.get_state().screen_buffer
             state = self.reduce_size(state)
-            ammo = self.game.get_state().game_variables[0]
-            info = ammo
+            reward = self.get_reward(reward)
+            info = self.ammo
         else: 
             state = np.zeros(self.observation_space.shape)
             info = 0 
